@@ -1,4 +1,4 @@
-# 🏗 scaffold-eth | 🏰 BuidlGuidl | Speedrun challenge 2
+# 🏗 scaffold-eth | 🏰 BuidlGuidl | 🚩 Challenge 2: Token Vendor
 
 ## The goal of the dApp
 
@@ -107,7 +107,20 @@ Don’t be scared, I’ll explain later after reviewing the code.
 
 ### YourToken.sol
 
-{% gist https://gist.github.com/StErMi/1f477c9467aab201bafa8ff22c704bb4 %}
+```ts
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.4;
+
+// Learn more about the ERC20 implementation 
+// on OpenZeppelin docs: https://docs.openzeppelin.com/contracts/4.x/erc20
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+contract YourToken is ERC20 {
+    constructor() ERC20("Scaffold ETH Token", "SET") {
+        _mint(msg.sender, 1000 * 10 ** 18);
+    }
+}
+```
 
 As you can see we are importing the ERC20.sol Contract from the OpenZeppelin library. That Contract is the OpenZeppelin implementation of the ERC20 Standard and they made an amazing job on both security and optimization!
 
@@ -164,7 +177,65 @@ The Vendor will be responsible to allow users to exchange ETH for our Token. In 
 
 Let’s review the important part of the code.
 
-{% gist https://gist.github.com/StErMi/81f0c5f6c470c31295f6706528acd1e0 %}
+```ts
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.4;
+
+import "./YourToken.sol";
+
+// Learn more about the ERC20 implementation 
+// on OpenZeppelin docs: https://docs.openzeppelin.com/contracts/4.x/api/access#Ownable
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract Vendor is Ownable {
+
+  // Our Token Contract
+  YourToken yourToken;
+
+  // token price for ETH
+  uint256 public tokensPerEth = 100;
+
+  // Event that log buy operation
+  event BuyTokens(address buyer, uint256 amountOfETH, uint256 amountOfTokens);
+
+  constructor(address tokenAddress) {
+    yourToken = YourToken(tokenAddress);
+  }
+
+  /**
+  * @notice Allow users to buy token for ETH
+  */
+  function buyTokens() public payable returns (uint256 tokenAmount) {
+    require(msg.value > 0, "Send ETH to buy some tokens");
+
+    uint256 amountToBuy = msg.value * tokensPerEth;
+
+    // check if the Vendor Contract has enough amount of tokens for the transaction
+    uint256 vendorBalance = yourToken.balanceOf(address(this));
+    require(vendorBalance >= amountToBuy, "Vendor contract has not enough tokens in its balance");
+
+    // Transfer token to the msg.sender
+    (bool sent) = yourToken.transfer(msg.sender, amountToBuy);
+    require(sent, "Failed to transfer token to user");
+
+    // emit the event
+    emit BuyTokens(msg.sender, msg.value, amountToBuy);
+
+    return amountToBuy;
+  }
+
+  /**
+  * @notice Allow the owner of the contract to withdraw ETH
+  */
+  function withdraw() public onlyOwner {
+    uint256 ownerBalance = address(this).balance;
+    require(ownerBalance > 0, "Owner has not balance to withdraw");
+
+    (bool sent,) = msg.sender.call{value: address(this).balance}("");
+    require(sent, "Failed to send user balance back to the owner");
+  }
+}
+```
 
 In the `buyTokens()` we are checking that the user has sent us at least some ETH otherwise we will revert the transaction (don’t be cheap!). Remember that in order to receive ETH our function must have the keyword `payable`.
 
@@ -178,7 +249,7 @@ The last thing to do is to emit the `BuyTokens` event to notify to the blockchai
 
 The `withdraw()` function is pretty simple. As you can see it rely on the `onlyOwner` `function modifier` that we inherited by the `Owner` contract. That modifier is checking that the `msg.sender` is the owner of the contract. We don’t want another user to withdraw the ETH we collected. Inside the function, we are transferring the ETH to the owner and checking if the operation was successful. Another way to do that, as I said previously is to use the `sendValue` of the [Address utility](https://docs.openzeppelin.com/contracts/4.x/api/utils#Address-sendValue-address-payable-uint256-) of OpenZeppelin.
 
-{% youtube xQNKBMKmdNs %}
+[![scaffol-eth challgenge 2 - ERC20 Token + Vendor dApp - Part 1 buyTokens](https://img.youtube.com/vi/xQNKBMKmdNs/0.jpg)](http://www.youtube.com/watch?v=xQNKBMKmdNs 'scaffol-eth challgenge 2 - ERC20 Token + Vendor dApp - Part 1 buyTokens')
 
 ## Exercise Part 3: Allow the Vendor to buy back!
 
@@ -208,7 +279,91 @@ This is the flow that will happen:
 
 ### Vendor.sol
 
-{% gist https://gist.github.com/StErMi/2c6f1910372e33214a0ef4392edde8f8 %}
+```ts
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.4;
+
+import "hardhat/console.sol";
+import "./YourToken.sol";
+
+// Learn more about the ERC20 implementation 
+// on OpenZeppelin docs: https://docs.openzeppelin.com/contracts/4.x/api/access#Ownable
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract Vendor is Ownable {
+
+  // Our Token Contract
+  YourToken yourToken;
+
+  // token price for ETH
+  uint256 public tokensPerEth = 100;
+
+  // Event that log buy operation
+  event BuyTokens(address buyer, uint256 amountOfETH, uint256 amountOfTokens);
+  event SellTokens(address seller, uint256 amountOfTokens, uint256 amountOfETH);
+
+  constructor(address tokenAddress) {
+    yourToken = YourToken(tokenAddress);
+  }
+
+  /**
+  * @notice Allow users to buy tokens for ETH
+  */
+  function buyTokens() public payable returns (uint256 tokenAmount) {
+    require(msg.value > 0, "Send ETH to buy some tokens");
+
+    uint256 amountToBuy = msg.value * tokensPerEth;
+
+    // check if the Vendor Contract has enough amount of tokens for the transaction
+    uint256 vendorBalance = yourToken.balanceOf(address(this));
+    require(vendorBalance >= amountToBuy, "Vendor contract has not enough tokens in its balance");
+
+    // Transfer token to the msg.sender
+    (bool sent) = yourToken.transfer(msg.sender, amountToBuy);
+    require(sent, "Failed to transfer token to user");
+
+    // emit the event
+    emit BuyTokens(msg.sender, msg.value, amountToBuy);
+
+    return amountToBuy;
+  }
+
+  /**
+  * @notice Allow users to sell tokens for ETH
+  */
+  function sellTokens(uint256 tokenAmountToSell) public {
+    // Check that the requested amount of tokens to sell is more than 0
+    require(tokenAmountToSell > 0, "Specify an amount of token greater than zero");
+
+    // Check that the user's token balance is enough to do the swap
+    uint256 userBalance = yourToken.balanceOf(msg.sender);
+    require(userBalance >= tokenAmountToSell, "Your balance is lower than the amount of tokens you want to sell");
+
+    // Check that the Vendor's balance is enough to do the swap
+    uint256 amountOfETHToTransfer = tokenAmountToSell / tokensPerEth;
+    uint256 ownerETHBalance = address(this).balance;
+    require(ownerETHBalance >= amountOfETHToTransfer, "Vendor has not enough funds to accept the sell request");
+
+    (bool sent) = yourToken.transferFrom(msg.sender, address(this), tokenAmountToSell);
+    require(sent, "Failed to transfer tokens from user to vendor");
+
+
+    (sent,) = msg.sender.call{value: amountOfETHToTransfer}("");
+    require(sent, "Failed to send ETH to the user");
+  }
+
+  /**
+  * @notice Allow the owner of the contract to withdraw ETH
+  */
+  function withdraw() public onlyOwner {
+    uint256 ownerBalance = address(this).balance;
+    require(ownerBalance > 0, "Owner has not balance to withdraw");
+
+    (bool sent,) = msg.sender.call{value: address(this).balance}("");
+    require(sent, "Failed to send user balance back to the owner");
+  }
+}
+```
 
 Let’s review `sellTokens`.
 
@@ -226,7 +381,7 @@ The last thing we do is to **transfer** the ETH amount for the sell operation ba
 
 In order to test this in your React app, you can update your App.jsx adding two `Card` to `Approve` and `Sell` tokens (see the GitHub code repo at the end of the post) or you can just do everything from the **Debug Contract** **tab** that offers all the needed features.
 
-{% youtube G1Wcb6Q3mYI %}
+[![scaffol-eth challgenge 2 - ERC20 Token + Vendor dApp - Part 2 sellTokens](https://img.youtube.com/vi/G1Wcb6Q3mYI/0.jpg)](http://www.youtube.com/watch?v=G1Wcb6Q3mYI 'scaffol-eth challgenge 2 - ERC20 Token + Vendor dApp - Part 2 sellTokens')
 
 ## Exercise Part 4: Create a test suite
 
@@ -264,7 +419,200 @@ Waffle offers some cool utilities to check [changes in ether balance](https://et
 
 ### Test coverage complete code
 
-{% gist https://gist.github.com/StErMi/f52a61df26fb7be65c75dffe1658e1b1 %}
+```ts
+const {ethers} = require('hardhat');
+const {use, expect} = require('chai');
+const {solidity} = require('ethereum-waffle');
+
+use(solidity);
+
+describe('Staker dApp', () => {
+  let owner;
+  let addr1;
+  let addr2;
+  let addrs;
+
+  let vendorContract;
+  let tokenContract;
+  let YourTokenFactory;
+
+  let vendorTokensSupply;
+  let tokensPerEth;
+
+  beforeEach(async () => {
+    // eslint-disable-next-line no-unused-vars
+    [owner, addr1, addr2, ...addrs] = await ethers.getSigners();
+
+    // Deploy ExampleExternalContract contract
+    YourTokenFactory = await ethers.getContractFactory('YourToken');
+    tokenContract = await YourTokenFactory.deploy();
+
+    // Deploy Staker Contract
+    const VendorContract = await ethers.getContractFactory('Vendor');
+    vendorContract = await VendorContract.deploy(tokenContract.address);
+
+    await tokenContract.transfer(vendorContract.address, ethers.utils.parseEther('1000'));
+    await vendorContract.transferOwnership(owner.address);
+
+    vendorTokensSupply = await tokenContract.balanceOf(vendorContract.address);
+    tokensPerEth = await vendorContract.tokensPerEth();
+  });
+
+  describe('Test buyTokens() method', () => {
+    it('buyTokens reverted no eth sent', async () => {
+      const amount = ethers.utils.parseEther('0');
+      await expect(
+        vendorContract.connect(addr1).buyTokens({
+          value: amount,
+        }),
+      ).to.be.revertedWith('Send ETH to buy some tokens');
+    });
+
+    it('buyTokens reverted vendor has not enough tokens', async () => {
+      const amount = ethers.utils.parseEther('101');
+      await expect(
+        vendorContract.connect(addr1).buyTokens({
+          value: amount,
+        }),
+      ).to.be.revertedWith('Vendor contract has not enough tokens in its balance');
+    });
+
+    it('buyTokens success!', async () => {
+      const amount = ethers.utils.parseEther('1');
+
+      // Check that the buyTokens process is successful and the event is emitted
+      await expect(
+        vendorContract.connect(addr1).buyTokens({
+          value: amount,
+        }),
+      )
+        .to.emit(vendorContract, 'BuyTokens')
+        .withArgs(addr1.address, amount, amount.mul(tokensPerEth));
+
+      // Check that the user's balance of token is 100
+      const userTokenBalance = await tokenContract.balanceOf(addr1.address);
+      const userTokenAmount = ethers.utils.parseEther('100');
+      expect(userTokenBalance).to.equal(userTokenAmount);
+
+      // Check that the vendor's token balance is 900
+      const vendorTokenBalance = await tokenContract.balanceOf(vendorContract.address);
+      expect(vendorTokenBalance).to.equal(vendorTokensSupply.sub(userTokenAmount));
+
+      // Check that the vendor's ETH balance is 1
+      const vendorBalance = await ethers.provider.getBalance(vendorContract.address);
+      expect(vendorBalance).to.equal(amount);
+    });
+  });
+
+  describe('Test withdraw() method', () => {
+    it('withdraw reverted because called by not the owner', async () => {
+      await expect(vendorContract.connect(addr1).withdraw()).to.be.revertedWith('Ownable: caller is not the owner');
+    });
+
+    it('withdraw reverted because called by not the owner', async () => {
+      await expect(vendorContract.connect(owner).withdraw()).to.be.revertedWith('Owner has not balance to withdraw');
+    });
+
+    it('withdraw success', async () => {
+      const ethOfTokenToBuy = ethers.utils.parseEther('1');
+
+      // buyTokens operation
+      await vendorContract.connect(addr1).buyTokens({
+        value: ethOfTokenToBuy,
+      });
+
+      // withdraw operation
+      const txWithdraw = await vendorContract.connect(owner).withdraw();
+
+      // Check that the Vendor's balance has 0 eth
+      const vendorBalance = await ethers.provider.getBalance(vendorContract.address);
+      expect(vendorBalance).to.equal(0);
+
+      // Check the the owner balance has changed of 1 eth
+      await expect(txWithdraw).to.changeEtherBalance(owner, ethOfTokenToBuy);
+    });
+  });
+
+  describe('Test sellTokens() method', () => {
+    it('sellTokens reverted because tokenAmountToSell is 0', async () => {
+      const amountToSell = ethers.utils.parseEther('0');
+      await expect(vendorContract.connect(addr1).sellTokens(amountToSell)).to.be.revertedWith(
+        'Specify an amount of token greater than zero',
+      );
+    });
+
+    it('sellTokens reverted because user has not enough tokens', async () => {
+      const amountToSell = ethers.utils.parseEther('1');
+      await expect(vendorContract.connect(addr1).sellTokens(amountToSell)).to.be.revertedWith(
+        'Your balance is lower than the amount of tokens you want to sell',
+      );
+    });
+
+    it('sellTokens reverted because vendor has not enough tokens', async () => {
+      // User 1 buy
+      const ethOfTokenToBuy = ethers.utils.parseEther('1');
+
+      // buyTokens operation
+      await vendorContract.connect(addr1).buyTokens({
+        value: ethOfTokenToBuy,
+      });
+
+      await vendorContract.connect(owner).withdraw();
+
+      const amountToSell = ethers.utils.parseEther('100');
+      await expect(vendorContract.connect(addr1).sellTokens(amountToSell)).to.be.revertedWith(
+        'Vendor has not enough funds to accept the sell request',
+      );
+    });
+
+    it('sellTokens reverted because user has now approved transfer', async () => {
+      // User 1 buy
+      const ethOfTokenToBuy = ethers.utils.parseEther('1');
+
+      // buyTokens operation
+      await vendorContract.connect(addr1).buyTokens({
+        value: ethOfTokenToBuy,
+      });
+
+      const amountToSell = ethers.utils.parseEther('100');
+      await expect(vendorContract.connect(addr1).sellTokens(amountToSell)).to.be.revertedWith(
+        'ERC20: transfer amount exceeds allowance',
+      );
+    });
+
+    it('sellTokens success', async () => {
+      // addr1 buy 1 ETH of tokens
+      const ethOfTokenToBuy = ethers.utils.parseEther('1');
+
+      // buyTokens operation
+      await vendorContract.connect(addr1).buyTokens({
+        value: ethOfTokenToBuy,
+      });
+
+      const amountToSell = ethers.utils.parseEther('100');
+      await tokenContract.connect(addr1).approve(vendorContract.address, amountToSell);
+
+      // check that the Vendor can transfer the amount of tokens we want to sell
+      const vendorAllowance = await tokenContract.allowance(addr1.address, vendorContract.address);
+      expect(vendorAllowance).to.equal(amountToSell);
+
+      const sellTx = await vendorContract.connect(addr1).sellTokens(amountToSell);
+
+      // Check that the vendor's token balance is 1000
+      const vendorTokenBalance = await tokenContract.balanceOf(vendorContract.address);
+      expect(vendorTokenBalance).to.equal(ethers.utils.parseEther('1000'));
+
+      // Check that the user's token balance is 0
+      const userTokenBalance = await tokenContract.balanceOf(addr1.address);
+      expect(userTokenBalance).to.equal(0);
+
+      // Check that the user's ETH balance is 1
+      const userEthBalance = ethers.utils.parseEther('1');
+      await expect(sellTx).to.changeEtherBalance(addr1, userEthBalance);
+    });
+  });
+});
+```
 
 ## Final step: deploy your Contract to the moon (testnet)
 
