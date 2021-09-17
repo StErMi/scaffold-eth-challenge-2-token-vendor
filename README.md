@@ -1,4 +1,4 @@
-🏗 scaffold-eth | 🏰 BuidlGuidl | Speedrun challenge 2
+# 🏗 scaffold-eth | 🏰 BuidlGuidl | Speedrun challenge 2
 
 ## The goal of the dApp
 
